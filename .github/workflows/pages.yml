@@ -1,0 +1,42 @@
+name: Publish KDFY-ems to GitHub Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+jobs:
+  build:
+    if: ${{ vars.GOOGLE_SCRIPT_URL != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: node tests/finance.test.mjs && node tests/import.test.mjs && node tests/google-backend.test.mjs
+      - run: npm run build:pages
+        env:
+          VITE_GOOGLE_SCRIPT_URL: ${{ vars.GOOGLE_SCRIPT_URL }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-pages
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.publish.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Publish
+        id: publish
+        uses: actions/deploy-pages@v4
