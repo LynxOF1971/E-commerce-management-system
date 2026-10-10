@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import ts from 'typescript';
+import fs from 'node:fs/promises';
+const compile=s=>ts.transpile(s,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext});
+const url=s=>'data:text/javascript;base64,'+Buffer.from(s).toString('base64');
+const f=url(compile(await fs.readFile('lib/finance.ts','utf8')));
+const code=compile(await fs.readFile('lib/import.ts','utf8')).replace("'./finance'",JSON.stringify(f));
+const {parseCSV,expenseRows}=await import(url(code));
+const csv='Date,Category,Description,Quantity,Unit Cost,Notes\r\n2026-10-10,Filament,"PLA, black",2,100.25,"Line 1\nLine 2"';
+const r=expenseRows(parseCSV(csv));assert.equal(r[0].description,'PLA, black');assert.equal(r[0].notes,'Line 1\nLine 2');assert.equal(r[0].error,'');
+assert.throws(()=>parseCSV('a,b\n"unclosed'));assert.throws(()=>expenseRows([['Item'],['Resin']]));assert(expenseRows([['Date','Category','Description','Quantity','Unit Cost'],['2026-02-30','Resin','bad',1,10]])[0].error);
+console.log('PASS: CSV quoted fields, multiline notes, missing headers, malformed files and invalid-date previews.');

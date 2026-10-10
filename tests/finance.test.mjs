@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import ts from 'typescript';
+import fs from 'node:fs/promises';
+const load=async path=>{const source=await fs.readFile(path,'utf8');return import('data:text/javascript;base64,'+Buffer.from(ts.transpile(source,{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext})).toString('base64'))};
+const {report,minor,expenseInput,salaryInput,bucket,dateKey,courierFee,validDate}=await load('lib/finance.ts');
+const {rolesOf,canTransition,visible}=await load('lib/access.ts');
+const costs=[400,300,800,400,800,900,350,350];
+const orders=costs.map((cost,i)=>({cost,quantity:i+1,orderDate:'2026-09-26',created:'2026-09-26',status:[3,5].includes(i)?'Pending':'Delivered',deliveredDate:'2026-10-01'}));
+const r=report(orders,[],[],[],'1900-01-01','9999-12-31','month').summary;
+assert.equal(r.expected,430000);assert.equal(r.gross,300000);assert.equal(r.fees,2900);assert.equal(r.revenue,297100);assert.equal(r.pending,130000);assert.equal(r.net,297100);
+const exp=expenseInput({date:'2026-09-26',category:'Filament',description:'PLA',quantity:1.5,unitCost:'100.10'});assert.equal(exp.totalMinor,15015);
+const salary=salaryInput({date:'2026-09-30',employee:'QA',period:'2026-09',base:'1000',bonus:100,deduction:50,status:'Unpaid'});assert.equal(salary.totalMinor,105000);
+const adjusted=report(orders,[exp],[salary],[{status:'Resolved',amount:100,financeDate:'2026-09-26'}],'2026-09-01','2026-09-30','week');assert.equal(adjusted.summary.net,167085);assert.equal(adjusted.summary.unpaidSalaries,105000);
+assert.equal(report(orders,[],[],[],'2026-10-01','2026-10-01','day','delivery').summary.revenue,297100);assert.equal(report(orders,[],[],[],'2026-10-01','2026-10-01','day','order').summary.revenue,0);
+assert.equal(bucket('2027-01-01','week'),'2026-12-28');assert.equal(dateKey('2026-10-01T18:00:00Z'),'2026-10-02');assert.equal(courierFee({cost:350,courierFee:0}),0);assert.throws(()=>minor('1.001'));assert.throws(()=>validDate('2026-02-30'));assert.throws(()=>salaryInput({date:'2026-01-01',employee:'QA',period:'2026-01',base:1,bonus:0,deduction:2,status:'Paid'}));
+assert.deepEqual(rolesOf({role:'production',roles:null}),['production']);const u={id:'qa',role:'production',roles:'["production","distributor"]'};assert(visible(u,{status:'Designed'}));assert(visible(u,{status:'Prepared'}));assert(!visible(u,{status:'Pending'}));assert(canTransition(u,'Designed','Prepared'));assert(canTransition(u,'Prepared','Delivered'));assert(!canTransition(u,'Designed','Delivered'));assert(!canTransition(u,'Pending','Prepared'));
+console.log('PASS: spreadsheet reconciliation (4300 / 2971 / 1300), exact money, salary arithmetic, adjustments, period boundaries, legacy roles and multi-role handoff permissions.');
