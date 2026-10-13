@@ -26,7 +26,7 @@ ok(request('/api/action',{action:'status',id:first.id,status:'Designed'},tokens.
 assert.equal(request('/api/action',{action:'status',id:first.id,status:'Prepared'},tokens.production).status,400);
 const photo=ok(request('/api/photo',{purpose:'production',orderId:first.id},tokens.production,{file:{type:'image/png',data:Buffer.from('testimage').toString('base64')}})).url;
 assert.equal(request('/api/action',{action:'status',id:first.id,status:'Prepared',productionPhotos:[photo]},tokens.production).status,400);
-ok(request('/api/action',{action:'status',id:first.id,status:'Prepared',productionPhotos:[photo],productionCosts:[{category:'Filament',description:'Filament used',amount:10},{category:'Other',description:'Keyring',amount:5},{category:'Packaging',description:'Packaging',amount:5}]},tokens.production));
+ok(request('/api/action',{action:'status',id:first.id,status:'Prepared',productionPhotos:[photo],productionCosts:[{costSource:'New expense',reason:'Required materials for this order',category:'Filament',description:'Filament used',amount:10},{costSource:'New expense',reason:'Required hardware for this order',category:'Other',description:'Keyring',amount:5},{costSource:'New expense',reason:'Required packaging for this order',category:'Packaging',description:'Packaging',amount:5}]},tokens.production));
 assert.equal(ok(request('/api/action',null,tokens.production)).orders.length,0);assert.equal(ok(request('/api/action',null,tokens.production)).archive.length,0);
 const handoffCosts=ok(request('/api/finance?scope=submissions',null,tokens.production)).submissions;assert.equal(handoffCosts.length,3);assert.equal(handoffCosts.reduce((n,e)=>n+e.totalMinor,0),2000);
 for(const cost of handoffCosts)ok(request('/api/finance',{action:'expense_review',id:cost.id,decision:'Approved',costTreatment:'Already included in purchase',note:'Materials already expensed.'},manager));
@@ -101,7 +101,7 @@ ok(request('/api/action',{action:'order',data:{...order,customer:'Undo productio
 const undoOrder=ok(request('/api/action',null,tokens.moderator)).orders.find(o=>o.customer==='Undo production');
 ok(request('/api/action',{action:'status',id:undoOrder.id,status:'Designed'},tokens.designer));
 const undoProof=ok(request('/api/photo',{purpose:'production',orderId:undoOrder.id},tokens.production,{file:{type:'image/png',data:Buffer.from('proof').toString('base64')}})).url;
-ok(request('/api/action',{action:'status',id:undoOrder.id,status:'Prepared',productionPhotos:[undoProof],productionCosts:[{category:'Filament',description:'Test material',amount:10}]},tokens.production));
+ok(request('/api/action',{action:'status',id:undoOrder.id,status:'Prepared',productionPhotos:[undoProof],productionCosts:[{costSource:'New expense',reason:'Required materials for this order',category:'Filament',description:'Test material',amount:10}]},tokens.production));
 assert(!ok(request('/api/action',null,tokens.production)).orders.some(o=>o.id===undoOrder.id));
 const undoSummary=ok(request('/api/action',null,tokens.production)).undoableOrders.find(o=>o.id===undoOrder.id);assert.equal(undoSummary.undoStatus,'Designed');assert.equal(undoSummary.address,undefined);
 assert.equal(request('/api/workflow',{action:'request_change',id:undoOrder.id,kind:'Status',proposedStatus:'Pending',reason:'Skip back two stages'},tokens.production).status,403);
@@ -125,6 +125,35 @@ ok(request('/api/workflow',{action:'review',requestId:cancelUndo.id,decision:'Ap
 assert(ok(request('/api/action',null,tokens.distributor)).orders.some(o=>o.id===correction.id&&o.status==='Delivered'));
 console.log('PASS delivered cancellation is separate from manager-approved undo.');
 
+
+// A 1 kg purchase is charged once; stock consumption is measured in grams.
+ok(request('/api/finance',{action:'expense',data:{date:'2026-10-13',category:'Filament',description:'SUNLU 1 kg',quantity:1,unit:'kg',unitCost:1600}},manager));
+const stock=ok(request('/api/action',null,tokens.production)).stockLots.find(l=>l.description==='SUNLU 1 kg');assert.equal(stock.remaining,1000);
+assert.equal(ok(request('/api/action',null,tokens.designer)).stockLots.length,0);
+const beforeStock=ok(request('/api/finance',null,manager)).summary.expenses;
+const stockLine={costSource:'From stock',stockId:stock.id,quantity:10,category:'Filament',description:'SUNLU 1 kg',reason:'Measured ten grams on the scale',amount:99999};
+assert.equal(request('/api/action',{action:'status',id:undoOrder.id,status:'Prepared',productionPhotos:[undoProof],productionCosts:[{...stockLine,quantity:1001}]},tokens.production).status,400);
+assert.equal(request('/api/action',{action:'status',id:undoOrder.id,status:'Prepared',productionPhotos:[undoProof],productionCosts:[{...stockLine,quantity:600},{...stockLine,quantity:600}]},tokens.production).status,400);
+ok(request('/api/action',{action:'status',id:undoOrder.id,status:'Prepared',productionPhotos:[undoProof],productionCosts:[stockLine,{costSource:'New expense',category:'Other',description:'Outside printing',amount:20,reason:'External printing for this order'}]},tokens.production));
+assert.equal(ok(request('/api/action',null,tokens.production)).stockLots.find(l=>l.id===stock.id).remaining,990);
+const stockEntry=ok(request('/api/finance?scope=submissions',null,manager)).submissions.find(e=>e.stockId===stock.id);assert.equal(stockEntry.totalMinor,1600);assert.equal(stockEntry.quantity,10);
+assert.equal(request('/api/finance',{action:'expense_review',id:stockEntry.id,decision:'Approved',costTreatment:'Additional expense',note:'Try charging twice'},manager).status,400);
+ok(request('/api/finance',{action:'expense_review',id:stockEntry.id,decision:'Approved',costTreatment:'Already included in purchase',note:'Verified weight and proof'},manager));
+assert.equal(ok(request('/api/finance',null,manager)).summary.expenses,beforeStock);
+const freshEntry=ok(request('/api/finance?scope=submissions',null,manager)).submissions.find(e=>e.orderId===undoOrder.id&&e.description==='Outside printing');
+ok(request('/api/finance',{action:'expense_review',id:freshEntry.id,decision:'Approved',costTreatment:'Additional expense',note:'Verified new receipt'},manager));
+assert.equal(ok(request('/api/finance',null,manager)).summary.expenses,beforeStock+2000);
+assert.equal(request('/api/finance',{action:'void',table:'expenses',id:stock.id,voided:true},manager).status,400);
+ok(request('/api/workflow',{action:'request_change',id:undoOrder.id,kind:'Status',proposedStatus:'Designed',reason:'Mistaken production handoff'},tokens.production));
+const stockUndo=ok(request('/api/action',null,manager)).requests.find(r=>r.orderId===undoOrder.id&&r.status==='Pending');
+ok(request('/api/workflow',{action:'review',requestId:stockUndo.id,decision:'Approved'},manager));
+assert.equal(ok(request('/api/action',null,tokens.production)).stockLots.find(l=>l.id===stock.id).remaining,1000);
+assert.equal(ok(request('/api/finance',null,manager)).summary.expenses,beforeStock);
+ok(request('/api/action',{action:'status',id:correction.id,status:'Cancelled'},tokens.distributor));
+for(const role of ['moderator','distributor'])assert(ok(request('/api/action',null,tokens[role])).orders.some(o=>o.id===correction.id&&o.status==='Cancelled'));
+ok(request('/api/action',{action:'status',id:first.id,status:'Cancelled'},manager));
+assert(ok(request('/api/action',null,tokens.production)).orders.some(o=>o.id===first.id&&o.status==='Cancelled'));
+console.log('PASS stock accounting: kg conversion, reservations, overspend blocked, server-calculated value, no double charge, mixed costs, undo restores stock, cancelled participant visibility.');
 ok(request('/api/action',{action:'logout'},manager));assert.equal(ok(request('/api/action',null,manager)).user,null);
 console.log('PASS Google backend: PBKDF2 compatibility, private login, roles, production proof, delivery, replacement routing/history, correction approval, finance, private photos, logout.');
 

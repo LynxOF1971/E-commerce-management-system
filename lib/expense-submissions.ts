@@ -14,7 +14,7 @@ export function submissionInput(raw:any){
   return {...data,kind:raw.kind,reason,proofs,orderId:String(raw.orderId||'').trim().slice(0,100)};
 }
 // Older manager-entered records have no approval field and remain approved.
-export const countsAsExpense=(e:any)=>!e.voided&&(!e.approval||(e.approval==='Approved'&&e.costTreatment==='Additional expense'));
+export const countsAsExpense=(e:any)=>!e.voided&&!e.stockId&&(!e.approval||(e.approval==='Approved'&&e.costTreatment==='Additional expense'));
 export function submissionTotals(records:any[]){
   const active=records.filter(e=>e.approval&&!e.voided);
   const sum=(items:any[])=>items.reduce((n,e)=>n+e.totalMinor,0);
