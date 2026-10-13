@@ -113,5 +113,18 @@ assert(ok(request('/api/action',null,tokens.production)).orders.some(o=>o.id===u
 assert(ok(request('/api/finance?scope=submissions',null,tokens.production)).submissions.find(r=>r.orderId===undoOrder.id).voided);
 assert(!ok(request('/api/action',null,tokens.production)).undoableOrders.some(o=>o.id===undoOrder.id));
 console.log('PASS undo-only corrections: latest actor, exact previous status, minimal handoff list, manager approval, production cost reversal, no repeat undo.');
+// Cancellation is a delivery outcome, independent from approved undo.
+ok(request('/api/action',{action:'status',id:correction.id,status:'Prepared'},manager));
+ok(request('/api/action',{action:'status',id:correction.id,status:'Delivered'},tokens.distributor));
+assert.equal(request('/api/action',{action:'status',id:correction.id,status:'Cancelled'},tokens.production).status,403);
+ok(request('/api/action',{action:'status',id:correction.id,status:'Cancelled'},tokens.distributor));
+assert.equal(request('/api/action',{action:'status',id:correction.id,status:'Delivered'},tokens.distributor).status,403);
+ok(request('/api/workflow',{action:'request_change',id:correction.id,kind:'Status',proposedStatus:'Delivered',reason:'Cancellation was selected by mistake'},tokens.distributor));
+const cancelUndo=ok(request('/api/action',null,manager)).requests.find(r=>r.orderId===correction.id&&r.status==='Pending');
+ok(request('/api/workflow',{action:'review',requestId:cancelUndo.id,decision:'Approved'},manager));
+assert(ok(request('/api/action',null,tokens.distributor)).orders.some(o=>o.id===correction.id&&o.status==='Delivered'));
+console.log('PASS delivered cancellation is separate from manager-approved undo.');
+
 ok(request('/api/action',{action:'logout'},manager));assert.equal(ok(request('/api/action',null,manager)).user,null);
 console.log('PASS Google backend: PBKDF2 compatibility, private login, roles, production proof, delivery, replacement routing/history, correction approval, finance, private photos, logout.');
+
