@@ -29,7 +29,8 @@ assert.equal(request('/api/action',{action:'status',id:first.id,status:'Prepared
 ok(request('/api/action',{action:'status',id:first.id,status:'Prepared',productionPhotos:[photo],productionCosts:[{costSource:'New expense',reason:'Required materials for this order',category:'Filament',description:'Filament used',amount:10},{costSource:'New expense',reason:'Required hardware for this order',category:'Other',description:'Keyring',amount:5},{costSource:'New expense',reason:'Required packaging for this order',category:'Packaging',description:'Packaging',amount:5}]},tokens.production));
 assert.equal(ok(request('/api/action',null,tokens.production)).orders.length,0);assert.equal(ok(request('/api/action',null,tokens.production)).archive.length,0);
 const handoffCosts=ok(request('/api/finance?scope=submissions',null,tokens.production)).submissions;assert.equal(handoffCosts.length,3);assert.equal(handoffCosts.reduce((n,e)=>n+e.totalMinor,0),2000);
-for(const cost of handoffCosts)ok(request('/api/finance',{action:'expense_review',id:cost.id,decision:'Approved',costTreatment:'Already included in purchase',note:'Materials already expensed.'},manager));
+assert(handoffCosts.every(c=>c.approval==='Recorded'));
+const purchaseProof=ok(request('/api/photo',{purpose:'expense'},manager,{file:{type:'image/png',data:Buffer.from('receipt').toString('base64')}})).url;
 ok(request('/api/action',{action:'status',id:first.id,status:'Delivered'},tokens.distributor));
 assert.equal(request('/api/workflow',{action:'reproduce',id:first.id,startStatus:'Designed',reason:'Valid manufacturing defect',verified:true},tokens.crm).status,403);
 const replacement=ok(request('/api/workflow',{action:'reproduce',id:first.id,startStatus:'Designed',reason:'Valid manufacturing defect',verified:true},tokens.moderator));
@@ -41,8 +42,9 @@ ok(request('/api/workflow',{action:'request_change',id:replacement.id,kind:'Stat
 assert.equal(ok(request('/api/action',null,tokens.production)).orders.length,0);assert.equal(ok(request('/api/action',null,tokens.production)).requests.length,0);assert.equal(ok(request('/api/action',null,manager)).heldOrders.length,1);assert.equal(request('/api/action',{action:'status',id:replacement.id,status:'Prepared'},manager).status,409);
 const req=ok(request('/api/action',null,manager)).requests[0];ok(request('/api/workflow',{action:'review',requestId:req.id,decision:'Approved'},manager));
 assert(ok(request('/api/action',null,tokens.designer)).orders.some(o=>o.id===replacement.id));
-ok(request('/api/finance',{action:'expense',data:{date:'2026-10-11',category:'Filament',description:'PLA',quantity:1,unitCost:20}},manager));
-const report=ok(request('/api/finance?from=2026-10-01&to=2026-10-31&group=month&basis=order',null,manager));assert.equal(report.expenses.length,1);
+assert.equal(request('/api/finance',{action:'expense',data:{date:'2026-10-11',category:'Filament',description:'No proof',quantity:1,unitCost:20}},manager).status,400);
+ok(request('/api/finance',{action:'expense',data:{proofs:[purchaseProof],date:'2026-10-11',category:'Filament',description:'PLA',quantity:1,unitCost:20}},manager));
+const report=ok(request('/api/finance?from=2026-10-01&to=2026-10-31&group=month&basis=order',null,manager));assert.equal(report.expenses.length,4);
 assert.equal(request('/api/finance',null,tokens.production).status,403);
 assert.equal(ok(request(photo,null,tokens.crm)).type,'image/png');
 // Production expenses: isolate submissions, validate evidence, and account exactly once.
@@ -56,7 +58,7 @@ assert.equal(request('/api/finance',{action:'expense_submit',data:{...submission
 ok(request('/api/finance',{action:'expense_submit',data:submission},tokens.production));
 let own=ok(request('/api/finance?scope=submissions',null,tokens.production));assert.equal(own.submissions.length,4);assert.equal(own.salaries,undefined);assert.equal(own.summary,undefined);
 const expenseId=own.submissions.find(r=>r.kind==='Purchase').id;
-let financial=ok(request('/api/finance',null,manager));assert.equal(financial.summary.expenses,2000);assert.equal(financial.submissionSummary.pendingValue,12000);
+let financial=ok(request('/api/finance',null,manager));assert.equal(financial.summary.expenses,4000);assert.equal(financial.submissionSummary.pendingValue,12000);
 assert.equal(request('/api/finance',{action:'expense_review',id:expenseId,decision:'Approved',costTreatment:'Additional expense',note:'Receipt checked'},tokens.production).status,403);
 assert.equal(request('/api/finance',{action:'expense',id:expenseId,data:submission},tokens.production).status,403);
 assert.equal(request('/api/finance',{action:'void',table:'expenses',id:expenseId,voided:true},tokens.production).status,403);
@@ -67,17 +69,17 @@ assert.equal(request(expenseProof,null,other).status,403);assert.equal(ok(reques
 assert.equal(request('/api/finance',{action:'expense_submit',data:submission},other).status,400);
 const approval={action:'expense_review',id:expenseId,decision:'Approved',costTreatment:'Additional expense',note:'Receipt and quantity checked.'};
 ok(request('/api/finance',approval,manager));assert.equal(request('/api/finance',approval,manager).status,400);
-financial=ok(request('/api/finance',null,manager));assert.equal(financial.summary.expenses,14000);assert.equal(financial.submissionSummary.pendingValue,0);
+financial=ok(request('/api/finance',null,manager));assert.equal(financial.summary.expenses,16000);assert.equal(financial.submissionSummary.pendingValue,0);
 assert.equal(request('/api/finance',{action:'expense',id:expenseId,data:submission},manager).status,400);
 ok(request('/api/finance',{action:'expense_submit',data:{...submission,kind:'Damage / waste',quantity:10,reason:'Print detached from the bed; recalibrate before the next run.'}},tokens.production));
 let waste=ok(request('/api/finance?scope=submissions',null,manager)).submissions.find(r=>r.kind==='Damage / waste');
 ok(request('/api/finance',{...approval,id:waste.id,costTreatment:'Already included in purchase'},manager));
-financial=ok(request('/api/finance',null,manager));assert.equal(financial.summary.expenses,14000);assert.equal(financial.submissionSummary.approvedWaste,120);
-assert.equal(financial.expenses.length,2);
+financial=ok(request('/api/finance',null,manager));assert.equal(financial.summary.expenses,16000);assert.equal(financial.submissionSummary.approvedWaste,120);
+assert.equal(financial.expenses.length,5);
 ok(request('/api/finance',{action:'expense_submit',data:{...submission,kind:'Material use',quantity:10,orderId:first.id,reason:'Ten grams weighed for the customer keyring.'}},tokens.production));
 let usage=ok(request('/api/finance?scope=submissions',null,manager)).submissions.find(r=>r.kind==='Material use'&&!r.source);
 ok(request('/api/finance',{...approval,id:usage.id,decision:'Rejected',note:'Scale photo does not match; please resubmit.'},manager));
-financial=ok(request('/api/finance',null,manager));assert.equal(financial.summary.expenses,14000);assert.equal(financial.submissionSummary.approvedMaterial,2000);
+financial=ok(request('/api/finance',null,manager));assert.equal(financial.summary.expenses,16000);assert.equal(financial.submissionSummary.approvedMaterial,2000);
 assert.equal(ok(request('/api/finance?scope=submissions',null,tokens.production)).submissions.find(r=>r.id===usage.id).history.length,2);
 assert.equal(ok(request('/api/finance?from=2026-11-01&to=2026-11-30',null,manager)).submissionSummary.approvedWaste,0);
 console.log('PASS production expenses: evidence required, scoped access, manager-only review, immutable submissions, duplicate approval blocked, waste tracking without double cost, rejection history, period filtering.');
@@ -127,7 +129,7 @@ console.log('PASS delivered cancellation is separate from manager-approved undo.
 
 
 // A 1 kg purchase is charged once; stock consumption is measured in grams.
-ok(request('/api/finance',{action:'expense',data:{date:'2026-10-13',category:'Filament',description:'SUNLU 1 kg',quantity:1,unit:'kg',unitCost:1600}},manager));
+ok(request('/api/finance',{action:'expense',data:{proofs:[purchaseProof],date:'2026-10-13',category:'Filament',description:'SUNLU 1 kg',quantity:1,unit:'kg',unitCost:1600}},manager));
 const stock=ok(request('/api/action',null,tokens.production)).stockLots.find(l=>l.description==='SUNLU 1 kg');assert.equal(stock.remaining,1000);
 assert.equal(ok(request('/api/action',null,tokens.designer)).stockLots.length,0);
 const beforeStock=ok(request('/api/finance',null,manager)).summary.expenses;
@@ -138,10 +140,10 @@ ok(request('/api/action',{action:'status',id:undoOrder.id,status:'Prepared',prod
 assert.equal(ok(request('/api/action',null,tokens.production)).stockLots.find(l=>l.id===stock.id).remaining,990);
 const stockEntry=ok(request('/api/finance?scope=submissions',null,manager)).submissions.find(e=>e.stockId===stock.id);assert.equal(stockEntry.totalMinor,1600);assert.equal(stockEntry.quantity,10);
 assert.equal(request('/api/finance',{action:'expense_review',id:stockEntry.id,decision:'Approved',costTreatment:'Additional expense',note:'Try charging twice'},manager).status,400);
-ok(request('/api/finance',{action:'expense_review',id:stockEntry.id,decision:'Approved',costTreatment:'Already included in purchase',note:'Verified weight and proof'},manager));
-assert.equal(ok(request('/api/finance',null,manager)).summary.expenses,beforeStock);
+assert.equal(stockEntry.approval,'Recorded');
+assert.equal(ok(request('/api/finance',null,manager)).summary.expenses,beforeStock+2000);
 const freshEntry=ok(request('/api/finance?scope=submissions',null,manager)).submissions.find(e=>e.orderId===undoOrder.id&&e.description==='Outside printing');
-ok(request('/api/finance',{action:'expense_review',id:freshEntry.id,decision:'Approved',costTreatment:'Additional expense',note:'Verified new receipt'},manager));
+assert.equal(freshEntry.approval,'Recorded');
 assert.equal(ok(request('/api/finance',null,manager)).summary.expenses,beforeStock+2000);
 assert.equal(request('/api/finance',{action:'void',table:'expenses',id:stock.id,voided:true},manager).status,400);
 ok(request('/api/workflow',{action:'request_change',id:undoOrder.id,kind:'Status',proposedStatus:'Designed',reason:'Mistaken production handoff'},tokens.production));
