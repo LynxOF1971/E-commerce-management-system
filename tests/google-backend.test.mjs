@@ -156,6 +156,21 @@ for(const role of ['moderator','distributor'])assert(ok(request('/api/action',nu
 ok(request('/api/action',{action:'status',id:first.id,status:'Cancelled'},manager));
 assert(ok(request('/api/action',null,tokens.production)).orders.some(o=>o.id===first.id&&o.status==='Cancelled'));
 console.log('PASS stock accounting: kg conversion, reservations, overspend blocked, server-calculated value, no double charge, mixed costs, undo restores stock, cancelled participant visibility.');
+
+const financesBeforeDelete=ok(request('/api/finance',null,manager));
+const stockBeforeDelete=JSON.stringify(ok(request('/api/action',null,manager)).stockLots);
+assert.equal(request('/api/action',{action:'delete_orders',scope:'all',password:'Test-password-123',confirmation:'DELETE'},tokens.production).status,403);
+assert.equal(request('/api/action',{action:'delete_orders',scope:'all',password:'wrong',confirmation:'DELETE'},manager).status,403);
+assert.equal(request('/api/action',{action:'delete_orders',scope:'all',password:'Test-password-123',confirmation:'WRONG'},manager).status,400);
+const deleteResult=ok(request('/api/action',{action:'delete_orders',scope:'all',password:'Test-password-123',confirmation:'DELETE'},manager));assert(deleteResult.count>0);
+const cleared=ok(request('/api/action',null,manager));assert.equal(cleared.orders.length,0);assert.equal(cleared.heldOrders.length,0);assert.equal(cleared.requests.length,0);assert(cleared.deletedOrders.length>0);
+assert.equal(ok(request('/api/action',null,tokens.production)).deletedOrders.length,0);
+assert.equal(ok(request('/api/finance',null,manager)).summary.expected,0);
+assert.equal(ok(request('/api/finance',null,manager)).summary.expenses,financesBeforeDelete.summary.expenses);
+assert.equal(JSON.stringify(cleared.stockLots),stockBeforeDelete);
+ok(request('/api/action',{action:'restore_order',id:first.id,password:'Test-password-123',confirmation:'DELETE'},manager));
+assert(ok(request('/api/action',null,manager)).orders.some(o=>o.id===first.id));
+console.log('PASS password-confirmed manager deletion and restore, orders reset without changing expenses or stock.');
 ok(request('/api/action',{action:'logout'},manager));assert.equal(ok(request('/api/action',null,manager)).user,null);
 console.log('PASS Google backend: PBKDF2 compatibility, private login, roles, production proof, delivery, replacement routing/history, correction approval, finance, private photos, logout.');
 
