@@ -13,7 +13,7 @@ const empty=()=>({orders:0,expected:0,pending:0,gross:0,fees:0,adjustments:0,rev
 export function report(orders:any[],expenses:any[],salaries:any[],cases:any[],from:string,to:string,group:string,basis='order'){
 const summary=empty();const rows:Record<string,ReturnType<typeof empty>>={};const inside=(d:string)=>!!d&&d>=from&&d<=to;
 const add=(day:string,key:keyof ReturnType<typeof empty>,n:number)=>{if(!inside(day))return;summary[key]+=n;const k=bucket(day,group);rows[k]??=empty();rows[k][key]+=n;};
-for(const o of orders){if(o.reproduction)continue;const day=orderDay(o),amount=minor(o.cost);add(day,'orders',1);add(day,'expected',amount);if(o.status!=='Delivered')add(day,'pending',amount);else{const recognized=basis==='delivery'?deliveredDay(o):day;add(recognized,'gross',amount);add(recognized,'fees',courierFee(o));}}
+for(const o of orders){if(o.reproduction||o.status==='Cancelled')continue;const day=orderDay(o),amount=minor(o.cost);add(day,'orders',1);add(day,'expected',amount);if(o.status!=='Delivered')add(day,'pending',amount);else{const recognized=basis==='delivery'?deliveredDay(o):day;add(recognized,'gross',amount);add(recognized,'fees',courierFee(o));}}
 for(const c of cases){if(c.status==='Resolved'&&Number(c.amount)>0)add(c.financeDate||dateKey(c.resolvedAt||c.created),'adjustments',minor(c.amount));}
 for(const e of expenses)add(e.date,'expenses',e.totalMinor);
 for(const s of salaries){add(s.date,'salaries',s.totalMinor);add(s.date,s.status==='Paid'?'paidSalaries':'unpaidSalaries',s.totalMinor);}

@@ -1,6 +1,6 @@
 import {minor,validDate,dateKey} from './finance';
 import {rolesOf} from './access';
-export const STAGES=['Pending','Designed','Prepared','Delivered','Not delivered','Reorder'];
+export const STAGES=['Pending','Designed','Prepared','Delivered','Not delivered','Cancelled','Reorder'];
 export const ROUTES:Record<string,string>={Designer:'Pending',Production:'Designed',Delivery:'Prepared'};
 export function details(o:any){return typeof o.data==='string'?JSON.parse(o.data):o;}
 export function reason(value:any){if(typeof value!=='string'||value.trim().length<10)throw Error('Give a clear reason of at least 10 characters.');return value.trim().slice(0,2000);}

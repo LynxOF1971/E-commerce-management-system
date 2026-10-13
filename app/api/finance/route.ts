@@ -19,7 +19,7 @@ if(!has(u,'manager'))return json({error:'Manager access required.'},403);
 if(b.action==='expense_review'){
  const row=await db.prepare('SELECT * FROM expenses WHERE id=?').bind(b.id).first();if(!row)throw Error('Submission not found.');const old=JSON.parse(row.data);
  if(old.approval!=='Pending'||row.voided)throw Error('This submission has already been reviewed or voided. Refresh the list.');
- if(row.creator===u.id)throw Error('Another manager must review your own submission.');
+
  if(!['Approved','Rejected'].includes(b.decision))throw Error('Choose approve or reject.');
  const note=String(b.note||'').trim();if(note.length<5||note.length>2000)throw Error('Add a review note of 5–2,000 characters.');
  if(b.decision==='Approved'&&!['Additional expense','Already included in purchase'].includes(b.costTreatment))throw Error('Choose how this cost affects profit.');
