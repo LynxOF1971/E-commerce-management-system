@@ -1,5 +1,5 @@
-'use client';
+import SearchPicker from './search-picker';
 import {PrivatePhoto} from './private-photo';
 import {useState} from 'react';
 export function Evidence({order}:any){const [tab,setTab]=useState('Moderator');return <section className="evidence"><h3>Order photos</h3><div className="tabs">{['Moderator','Production'].map(t=><button type="button" key={t} className={tab===t?'tab current':'tab'} onClick={()=>setTab(t)}>{t} photos</button>)}</div>{tab==='Moderator'?(order.photo?<PrivatePhoto expand className="prototype" src={order.photo} alt="Moderator reference"/>:<p>No moderator reference photo.</p>):(order.productionPhotos||[]).length?<div className="proof-gallery">{order.productionPhotos.map((p:any,i:number)=><figure key={i}><PrivatePhoto expand className="prototype" src={p.url} alt={'Production proof '+(i+1)}/><figcaption>{p.by} · {new Date(p.date).toLocaleString()}</figcaption></figure>)}</div>:<p>No production proof uploaded.</p>}</section>}
-export function ProductPicker({value,onChange,products}:any){return <label>Product type · search to select<input list="product-options" required value={value||''} placeholder="Search product types…" onChange={e=>onChange(e.target.value)}/><datalist id="product-options">{products.map((p:any)=><option key={p.name} value={p.name}/>)}</datalist></label>}
+export function ProductPicker({value,onChange,products}:any){return <SearchPicker label="Product category" value={value} onChange={onChange} options={products.map((p:any)=>({value:p.name,label:p.name}))} empty="Ask your manager to add a product category."/>}
