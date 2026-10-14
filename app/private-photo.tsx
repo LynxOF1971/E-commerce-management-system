@@ -1,5 +1,6 @@
 'use client';
 import {useEffect,useState} from 'react';
+import {cachedPhoto} from '../lib/photo-cache';
 import {apiFetch} from '../lib/client-api';
 
 export function PrivatePhoto({src,alt,className,expand=false}:{src:string;alt:string;className?:string;expand?:boolean}) {
@@ -7,9 +8,9 @@ export function PrivatePhoto({src,alt,className,expand=false}:{src:string;alt:st
   useEffect(()=>{
     let objectUrl=''; const controller=new AbortController(); setUrl('');
     if (!src?.startsWith('/api/photo?key=')) return;
-    apiFetch(src,{signal:controller.signal}).then(async response=>{
+    cachedPhoto(src,async()=>{const response=await apiFetch(src);
       if(!response.ok)throw Error('Photo unavailable');
-      const blob=await response.blob();
+      return response.blob();}).then(blob=>{
       if(controller.signal.aborted)return;
       objectUrl=URL.createObjectURL(blob);setUrl(objectUrl);
     }).catch(()=>{});

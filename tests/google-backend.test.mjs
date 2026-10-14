@@ -1,14 +1,14 @@
 import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';import {randomUUID,pbkdf2Sync} from 'node:crypto';
-const properties={PHOTO_FOLDER:'photos',SETUP_KEY:'test-only-key'};const tables=new Map(),ids=new Map();let nextId=1;const files=new Map();
+const properties={PHOTO_FOLDER:'photos',SETUP_KEY:'test-only-key'};const tables=new Map(),ids=new Map();let nextId=1;let lockHeld=false;const files=new Map();
 const props={getProperty:k=>properties[k]||null,setProperty:(k,v)=>{properties[k]=v},deleteProperty:k=>delete properties[k],getProperties:()=>({...properties})};
 function sheet(name){if(!tables.has(name)){const s={id:nextId++,rows:[],getSheetId(){return this.id},getLastRow(){return this.rows.length+1},getMaxRows:()=>1000,getRange(){return {getValues:()=>this.rows.map(r=>[r.id||r.name,'',JSON.stringify(r),...Array(9).fill('')])}}};tables.set(name,s);ids.set(s.id,s)}return tables.get(name)}
 const ss={getSheetByName:sheet,getId:()=> 'test'};
 const blob=(data,type)=>({getBytes:()=>Array.from(typeof data==='string'?Buffer.from(data):data,n=>n>127?n-256:n),getContentType:()=>type});
 const context=vm.createContext({console,Uint8Array,Uint32Array,DataView,ArrayBuffer,TextEncoder,Set,Map,Date,Intl,JSON,Error,Object,Number,String,Math,encodeURIComponent,decodeURIComponent,
  Utilities:{getUuid:randomUUID,newBlob:blob,base64Decode:s=>Array.from(Buffer.from(s,'base64')),base64Encode:b=>Buffer.from(b.map(n=>n&255)).toString('base64')},
- PropertiesService:{getScriptProperties:()=>props},SpreadsheetApp:{openById:()=>ss},LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock(){}})},CacheService:{getScriptCache:()=>({get:()=>null,put(){}})},ScriptApp:{getOAuthToken:()=> 'private-test-token'},
+ PropertiesService:{getScriptProperties:()=>props},SpreadsheetApp:{openById:()=>ss},LockService:{getScriptLock:()=>({tryLock:()=>{lockHeld=true;return true},releaseLock(){lockHeld=false}})},CacheService:{getScriptCache:()=>({get:()=>null,put(){}})},ScriptApp:{getOAuthToken:()=> 'private-test-token'},
  ContentService:{MimeType:{JSON:'json'},createTextOutput:s=>({setMimeType:()=>JSON.parse(s)})},
- DriveApp:{getFolderById:()=>({createFile:b=>{const id=randomUUID();files.set(id,b);return {getId:()=>id}}}),getFileById:id=>({getBlob:()=>files.get(id)})},
+ DriveApp:{getFolderById:()=>({createFile:b=>{const id=randomUUID();files.set(id,b);return {getId:()=>id}}}),getFileById:id=>({getBlob:()=>{assert.equal(lockHeld,false,'Drive image reads must not hold the workspace lock');return files.get(id)}})},
  Sheets:{Spreadsheets:{batchUpdate:({requests})=>{for(const req of requests){if(req.updateCells){const update=req.updateCells;ids.get(update.range.sheetId).rows=update.rows.map(r=>JSON.parse(r.values.slice(2).map(c=>c.userEnteredValue.stringValue).join('')))}}return {}}}}
 });
 vm.runInContext(fs.readFileSync('google-backend/Code.gs','utf8'),context);
@@ -208,3 +208,5 @@ auditWaste=ok(request('/api/finance?scope=submissions',null,manager)).submission
 ok(request('/api/finance',{action:'expense_review',id:auditWaste.id,decision:'Rejected',note:'Incorrect measurement'},manager));
 assert.equal(ok(request('/api/finance?scope=submissions',null,manager)).stockLots.find(l=>l.id===lot.id).remaining,990);
 console.log('PASS audit fixes: username normalization, image bytes, redelivery permissions, stock waste reservation/approval/rejection and no double charge.');
+
+const fastLogin=ok(request('/api/action',{action:'login',username:'production',password:'Test-password-123'}));assert.equal(fastLogin.workspace.user.username,'production');assert.equal(fastLogin.workspace.users.length,0);console.log('PASS performance: login bundles scoped workspace, photo transfer releases shared lock.');

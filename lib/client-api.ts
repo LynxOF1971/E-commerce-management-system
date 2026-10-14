@@ -1,7 +1,9 @@
+import {clearPhotoCache} from './photo-cache';
 // The GitHub website talks to Google Apps Script; credentials stay out of URLs.
 const script = (import.meta as any).env?.VITE_GOOGLE_SCRIPT_URL || '';
 const key = 'kdfy-session';
 export const standaloneApi = Boolean(script);
+export const hasSavedSession=()=>typeof sessionStorage!=='undefined'&&!!sessionStorage.getItem(key);
 export const publicAsset = (name:string) => ((import.meta as any).env?.BASE_URL || '/') + name;
 export async function apiFetch(path:string, init:RequestInit = {}) {
   if(!script)return fetch(path,init);
@@ -17,8 +19,8 @@ export async function apiFetch(path:string, init:RequestInit = {}) {
   const r=await fetch(script,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload),credentials:'omit',redirect:'follow',signal:init.signal});
   if(!r.ok)throw Error('Google backend unavailable. Please try again.');
   const result:any=await r.json();
-  if(result.body?.sessionToken)sessionStorage.setItem(key,result.body.sessionToken);
-  if((payload.body?.action==='logout'&&result.status===200)||result.status===401)sessionStorage.removeItem(key);
+  if(result.body?.sessionToken){clearPhotoCache();sessionStorage.setItem(key,result.body.sessionToken);}
+  if((payload.body?.action==='logout'&&result.status===200)||result.status===401){clearPhotoCache();sessionStorage.removeItem(key);}
   if(result.body?.image){const binary=atob(result.body.image);return new Response(Uint8Array.from(binary,c=>c.charCodeAt(0)),{status:result.status,headers:{'Content-Type':result.body.type}});}
   return new Response(JSON.stringify(result.body),{status:result.status||500,headers:{'Content-Type':'application/json'}});
 }

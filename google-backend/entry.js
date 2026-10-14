@@ -27,10 +27,10 @@ export function initializeWorkspace(){
 function bucket(db,props){return {
  put(key,data,options){const folder=DriveApp.getFolderById(props.getProperty('PHOTO_FOLDER'));const file=folder.createFile(Utilities.newBlob(Array.from(data,n=>n>127?n-256:n),options.httpMetadata.contentType,Utilities.getUuid()));db.rows('photos').push({id:key,fileId:file.getId(),type:options.httpMetadata.contentType});db.dirty.add('photos');},
  head(key){return db.rows('photos').find(r=>r.id===key)||null;},
- get(key){const item=db.rows('photos').find(r=>r.id===key);if(!item)return null;const blob=DriveApp.getFileById(item.fileId).getBlob();return {body:{image:Utilities.base64Encode(blob.getBytes()),type:item.type},httpMetadata:{contentType:item.type}};}
+ get(key){const item=db.rows('photos').find(r=>r.id===key);if(!item)return null;return {body:{privatePhotoFile:item.fileId,type:item.type},httpMetadata:{contentType:item.type}};}
 }}
 export function doPost(e){
- const lock=LockService.getScriptLock();if(!lock.tryLock(20000))return output({status:503,body:{error:'Workspace busy. Please try again.'}});
+ let released=false;const lock=LockService.getScriptLock();if(!lock.tryLock(20000))return output({status:503,body:{error:'Workspace busy. Please try again.'}});
  try{
   const payload=JSON.parse(e.postData.contents);if(!payload||typeof payload.path!=='string')throw Error('Invalid request');
   const props=PropertiesService.getScriptProperties();if(!props.getProperty('PHOTO_FOLDER'))throw Error('The owner must initialize the workspace first.');
@@ -47,7 +47,18 @@ export function doPost(e){
   const request={url:'https://kdfy.local'+payload.path,headers:{get:key=>headers[key.toLowerCase()]||null},json:()=>body,formData:()=>({get:key=>key==='file'?upload:body[key]||null})};
   const result=handler(request);db.commit();
   const cookie=result.headers['Set-Cookie'];const sessionToken=cookie?.match(/^kd_session=([^;]+)/)?.[1];
-  const responseBody=sessionToken?{...result.body,sessionToken}:result.body;
+  let responseBody=sessionToken?{...result.body,sessionToken}:result.body;
+  if(sessionToken&&path==='/api/action'&&['login','setup'].includes(body.action)){
+   headers.authorization='Bearer '+sessionToken;
+   const workspace=action.GET(request);if(workspace.status===200)responseBody={...responseBody,workspace:workspace.body};
+  }
+  // Authorization and metadata were checked under the lock. Drive image transfer does not
+  // mutate shared state, so it must not hold up login or order updates for other staff.
+  if(path==='/api/photo'&&method==='GET'&&result.status===200&&responseBody?.privatePhotoFile){
+   lock.releaseLock();released=true;
+   const imageBlob=DriveApp.getFileById(responseBody.privatePhotoFile).getBlob();
+   responseBody={image:Utilities.base64Encode(imageBlob.getBytes()),type:responseBody.type};
+  }
   return output({status:result.status,body:responseBody});
- }catch(error){return output({status:400,body:{error:error.message||'Unable to process request'}})}finally{lock.releaseLock()}
+ }catch(error){return output({status:400,body:{error:error.message||'Unable to process request'}})}finally{if(!released)lock.releaseLock()}
 }

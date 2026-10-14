@@ -3,9 +3,9 @@ export const SCHEMA={users:['id','username','name','role','hash','salt','roles']
 const PRIVATE=['users','sessions','attempts'];
 function splitTop(s,separator){let depth=0,quote=false,start=0,out=[];for(let i=0;i<s.length;i++){if(s[i]==="'")quote=!quote;if(quote)continue;if(s[i]==='(')depth++;if(s[i]===')')depth--;if(!depth&&s.slice(i,i+separator.length)===separator){out.push(s.slice(start,i).trim());start=i+separator.length;i+=separator.length-1;}}out.push(s.slice(start).trim());return out;}
 export class SheetDB{
- constructor(ss,props){this.ss=ss;this.props=props;this.cache={};this.dirty=new Set();this.original={};}
+ constructor(ss,props){this.ss=ss;this.props=props;this.cache={};this.dirty=new Set();this.original={};this.privateValues=null;}
  rows(table){if(!SCHEMA[table])throw Error('Unknown table');if(!this.cache[table]){let rows;
- if(PRIVATE.includes(table)){const values=this.props.getProperties();rows=Object.keys(values).filter(k=>k.startsWith('row:'+table+':')).map(k=>JSON.parse(values[k]));this.original[table]=rows.map(r=>r.id);}
+ if(PRIVATE.includes(table)){const values=this.privateValues||(this.privateValues=this.props.getProperties());rows=Object.keys(values).filter(k=>k.startsWith('row:'+table+':')).map(k=>JSON.parse(values[k]));this.original[table]=rows.map(r=>r.id);}
  else{const s=this.ss.getSheetByName('KDFY_'+table);if(!s)throw Error('Run initializeWorkspace first.');rows=s.getLastRow()>1?s.getRange(2,1,s.getLastRow()-1,12).getValues().filter(r=>r[0]).map(r=>JSON.parse(r.slice(2).join(''))):[];}
  this.cache[table]=rows;}return this.cache[table];}
  prepare(sql){const db=this;let args=[];return {bind(...a){args=a;return this},all(){return {results:db.execute(sql,args)}},first(){return db.execute(sql,args)[0]||null},run(){return {meta:{changes:db.execute(sql,args)}}},_sql:sql,get _args(){return args}};}
