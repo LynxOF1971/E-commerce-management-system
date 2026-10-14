@@ -8,7 +8,7 @@ export function submissionInput(raw:any){
   const reason=String(raw.reason||'').trim();
   if(reason.length<10||reason.length>2000)throw Error('Explain the purpose or cause in 10–2,000 characters.');
   if(!String(raw.unit||'').trim())throw Error('Enter the quantity unit, such as g, kg or pcs.');
-  if(data.totalMinor<=0)throw Error('Enter a cost greater than zero.');
+  if(data.totalMinor<=0&&!raw.stockId)throw Error('Enter a cost greater than zero.');
   if(!Array.isArray(raw.proofs)||!raw.proofs.length||raw.proofs.length>8||raw.proofs.some((p:any)=>typeof p!=='string'))throw Error('Upload 1–8 proof photos showing the quantity and cost.');
   const proofs=[...new Set<string>(raw.proofs)];
   return {...data,kind:raw.kind,reason,proofs,orderId:String(raw.orderId||'').trim().slice(0,100)};

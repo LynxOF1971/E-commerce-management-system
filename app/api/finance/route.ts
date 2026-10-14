@@ -10,7 +10,16 @@ export async function GET(req:Request){try{const db=(env as any).DB;const u=awai
 export async function POST(req:Request){try{if(req.headers.get('origin')&&req.headers.get('origin')!==new URL(req.url).origin)return json({error:'Invalid origin'},403);const db=(env as any).DB;const u=await current(req,db);if(!has(u,'manager','production'))return json({error:'Production or manager access required.'},403);const b:any=await req.json();const now=new Date().toISOString();
 if(b.action==='expense_submit'){
  if(!has(u,'production'))return json({error:'Only production can submit production expenses.'},403);
- const data=submissionInput(b.data);
+ let raw=b.data;
+ if(raw?.kind!=='Purchase'&&raw?.stockId){
+ const lot=stockLots(await expenseRecords(db)).find((l:any)=>l.id===raw.stockId);const quantity=Number(raw.quantity);
+ if(!lot||!Number.isFinite(quantity)||quantity<=0||quantity>lot.remaining||Math.round(quantity*1e6)!==quantity*1e6)throw Error('Choose available stock and a quantity within its balance.');
+ raw={...raw,category:lot.category,unit:lot.unit,unitCost:(lot.unitCostMinor/100).toFixed(2)};
+ }
+ if(raw?.kind!=='Purchase'&&!raw?.stockId)throw Error('Select the purchased material for usage or waste. Record purchases separately.');
+ const data:any=submissionInput(raw);
+ if(raw.stockId&&raw.kind!=='Purchase'){const lot=stockLots(await expenseRecords(db)).find((l:any)=>l.id===raw.stockId)!;Object.assign(data,{stockId:lot.id,costSource:'From stock',unitCostMinor:lot.unitCostMinor,totalMinor:Math.round(data.quantity*lot.unitCostMinor)});}
+
  for(const url of data.proofs){const prefix='/api/photo?key=';if(!url.startsWith(prefix))throw Error('Upload proof using the expense form.');const key=decodeURIComponent(url.slice(prefix.length));if(!key.startsWith(u.id+'/expense-proof/')||!await (env as any).BUCKET.head(key))throw Error('Proof must be your own uploaded expense photo.');}
  if(data.orderId){const order=await db.prepare('SELECT * FROM orders WHERE id=?').bind(data.orderId).first();if(!order)throw Error('Order reference not found.');if(!has(u,'manager')&&!['Designed','Prepared','Delivered','Not delivered'].includes(order.status))throw Error('Reference an order that has reached production.');}
  const record={...data,approval:'Pending',costTreatment:'',submittedBy:u.name,submittedAt:now,history:[{action:'Submitted',by:u.name,userId:u.id,date:now,note:data.reason}]};

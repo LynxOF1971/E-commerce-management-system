@@ -24,13 +24,13 @@ ok(request('/api/action',{action:'order',data:order},tokens.moderator));const fi
 assert.equal(ok(request('/api/action',null,tokens.production)).orders.length,0);
 ok(request('/api/action',{action:'status',id:first.id,status:'Designed'},tokens.designer));
 assert.equal(request('/api/action',{action:'status',id:first.id,status:'Prepared'},tokens.production).status,400);
-const photo=ok(request('/api/photo',{purpose:'production',orderId:first.id},tokens.production,{file:{type:'image/png',data:Buffer.from('testimage').toString('base64')}})).url;
+const photo=ok(request('/api/photo',{purpose:'production',orderId:first.id},tokens.production,{file:{type:'image/png',data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='}})).url;
 assert.equal(request('/api/action',{action:'status',id:first.id,status:'Prepared',productionPhotos:[photo]},tokens.production).status,400);
 ok(request('/api/action',{action:'status',id:first.id,status:'Prepared',productionPhotos:[photo],productionCosts:[{costSource:'New expense',reason:'Required materials for this order',category:'Filament',description:'Filament used',amount:10},{costSource:'New expense',reason:'Required hardware for this order',category:'Other',description:'Keyring',amount:5},{costSource:'New expense',reason:'Required packaging for this order',category:'Packaging',description:'Packaging',amount:5}]},tokens.production));
 assert.equal(ok(request('/api/action',null,tokens.production)).orders.length,0);assert.equal(ok(request('/api/action',null,tokens.production)).archive.length,0);
 const handoffCosts=ok(request('/api/finance?scope=submissions',null,tokens.production)).submissions;assert.equal(handoffCosts.length,3);assert.equal(handoffCosts.reduce((n,e)=>n+e.totalMinor,0),2000);
 assert(handoffCosts.every(c=>c.approval==='Recorded'));
-const purchaseProof=ok(request('/api/photo',{purpose:'expense'},manager,{file:{type:'image/png',data:Buffer.from('receipt').toString('base64')}})).url;
+const purchaseProof=ok(request('/api/photo',{purpose:'expense'},manager,{file:{type:'image/png',data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='}})).url;
 ok(request('/api/action',{action:'status',id:first.id,status:'Delivered'},tokens.distributor));
 assert.equal(request('/api/workflow',{action:'reproduce',id:first.id,startStatus:'Designed',reason:'Valid manufacturing defect',verified:true},tokens.crm).status,403);
 const replacement=ok(request('/api/workflow',{action:'reproduce',id:first.id,startStatus:'Designed',reason:'Valid manufacturing defect',verified:true},tokens.moderator));
@@ -48,7 +48,7 @@ const report=ok(request('/api/finance?from=2026-10-01&to=2026-10-31&group=month&
 assert.equal(request('/api/finance',null,tokens.production).status,403);
 assert.equal(ok(request(photo,null,tokens.crm)).type,'image/png');
 // Production expenses: isolate submissions, validate evidence, and account exactly once.
-const expenseProof=ok(request('/api/photo',{purpose:'expense'},tokens.production,{file:{type:'image/png',data:Buffer.from('quantity-and-receipt').toString('base64')}})).url;
+const expenseProof=ok(request('/api/photo',{purpose:'expense'},tokens.production,{file:{type:'image/png',data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='}})).url;
 const submission={kind:'Purchase',date:'2026-10-11',category:'Filament',description:'PLA for keyrings',quantity:1000,unit:'g',unitCost:0.12,vendor:'Test supplier',reason:'Purchased a new spool for keyring production.',proofs:[expenseProof]};
 assert.equal(request('/api/finance',{action:'expense_submit',data:submission},tokens.moderator).status,403);
 assert.equal(request('/api/finance',{action:'expense_submit',data:{...submission,proofs:[]}},tokens.production).status,400);
@@ -71,12 +71,12 @@ const approval={action:'expense_review',id:expenseId,decision:'Approved',costTre
 ok(request('/api/finance',approval,manager));assert.equal(request('/api/finance',approval,manager).status,400);
 financial=ok(request('/api/finance',null,manager));assert.equal(financial.summary.expenses,16000);assert.equal(financial.submissionSummary.pendingValue,0);
 assert.equal(request('/api/finance',{action:'expense',id:expenseId,data:submission},manager).status,400);
-ok(request('/api/finance',{action:'expense_submit',data:{...submission,kind:'Damage / waste',quantity:10,reason:'Print detached from the bed; recalibrate before the next run.'}},tokens.production));
+ok(request('/api/finance',{action:'expense_submit',data:{...submission,kind:'Damage / waste',stockId:expenseId,quantity:10,reason:'Print detached from the bed; recalibrate before the next run.'}},tokens.production));
 let waste=ok(request('/api/finance?scope=submissions',null,manager)).submissions.find(r=>r.kind==='Damage / waste');
 ok(request('/api/finance',{...approval,id:waste.id,costTreatment:'Already included in purchase'},manager));
 financial=ok(request('/api/finance',null,manager));assert.equal(financial.summary.expenses,16000);assert.equal(financial.submissionSummary.approvedWaste,120);
 assert.equal(financial.expenses.length,5);
-ok(request('/api/finance',{action:'expense_submit',data:{...submission,kind:'Material use',quantity:10,orderId:first.id,reason:'Ten grams weighed for the customer keyring.'}},tokens.production));
+ok(request('/api/finance',{action:'expense_submit',data:{...submission,kind:'Material use',stockId:expenseId,quantity:10,orderId:first.id,reason:'Ten grams weighed for the customer keyring.'}},tokens.production));
 let usage=ok(request('/api/finance?scope=submissions',null,manager)).submissions.find(r=>r.kind==='Material use'&&!r.source);
 ok(request('/api/finance',{...approval,id:usage.id,decision:'Rejected',note:'Scale photo does not match; please resubmit.'},manager));
 financial=ok(request('/api/finance',null,manager));assert.equal(financial.summary.expenses,16000);assert.equal(financial.submissionSummary.approvedMaterial,2000);
@@ -102,7 +102,7 @@ console.log('PASS revised workflow: moderator-only detail requests, held orders 
 ok(request('/api/action',{action:'order',data:{...order,customer:'Undo production'}},tokens.moderator));
 const undoOrder=ok(request('/api/action',null,tokens.moderator)).orders.find(o=>o.customer==='Undo production');
 ok(request('/api/action',{action:'status',id:undoOrder.id,status:'Designed'},tokens.designer));
-const undoProof=ok(request('/api/photo',{purpose:'production',orderId:undoOrder.id},tokens.production,{file:{type:'image/png',data:Buffer.from('proof').toString('base64')}})).url;
+const undoProof=ok(request('/api/photo',{purpose:'production',orderId:undoOrder.id},tokens.production,{file:{type:'image/png',data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='}})).url;
 ok(request('/api/action',{action:'status',id:undoOrder.id,status:'Prepared',productionPhotos:[undoProof],productionCosts:[{costSource:'New expense',reason:'Required materials for this order',category:'Filament',description:'Test material',amount:10}]},tokens.production));
 assert(!ok(request('/api/action',null,tokens.production)).orders.some(o=>o.id===undoOrder.id));
 const undoSummary=ok(request('/api/action',null,tokens.production)).undoableOrders.find(o=>o.id===undoOrder.id);assert.equal(undoSummary.undoStatus,'Designed');assert.equal(undoSummary.address,undefined);
@@ -174,3 +174,37 @@ console.log('PASS password-confirmed manager deletion and restore, orders reset 
 ok(request('/api/action',{action:'logout'},manager));assert.equal(ok(request('/api/action',null,manager)).user,null);
 console.log('PASS Google backend: PBKDF2 compatibility, private login, roles, production proof, delivery, replacement routing/history, correction approval, finance, private photos, logout.');
 
+// Audit regressions: normalized login throttling, real image containers, retry delivery, linked waste.
+manager=ok(request('/api/action',{action:'login',username:'owner',password:'Test-password-123'})).sessionToken;
+for(let i=0;i<10;i++)assert.equal(request('/api/action',{action:'login',username:'owner',password:'wrong-password'}).status,401);
+assert.equal(request('/api/action',{action:'login',username:' OWNER ',password:'wrong-password'}).status,429);
+const retryDistributor=ok(request('/api/action',{action:'login',username:'distributor',password:'Test-password-123'})).sessionToken;
+const auditProduction=ok(request('/api/action',{action:'login',username:'production',password:'Test-password-123'})).sessionToken;
+ok(request('/api/action',{action:'order',data:{...order,customer:'Retry delivery regression'}},manager));
+const retryOrder=ok(request('/api/action',null,manager)).orders.find(o=>o.customer==='Retry delivery regression');
+ok(request('/api/action',{action:'status',id:retryOrder.id,status:'Prepared'},manager));
+ok(request('/api/action',{action:'status',id:retryOrder.id,status:'Not delivered'},retryDistributor));
+assert.equal(request('/api/action',{action:'status',id:retryOrder.id,status:'Delivered'},auditProduction).status,403);
+ok(request('/api/action',{action:'status',id:retryOrder.id,status:'Delivered'},retryDistributor));
+assert.equal(request('/api/action',{action:'status',id:retryOrder.id,status:'Prepared'},retryDistributor).status,403);
+for(const type of ['image/png','image/jpeg','image/webp'])assert.equal(request('/api/photo',{purpose:'expense'},auditProduction,{file:{type,data:Buffer.from('THIS IS NOT AN IMAGE').toString('base64')}}).status,400);
+const realProof=ok(request('/api/photo',{purpose:'expense'},auditProduction,{file:{type:'image/png',data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='}})).url;
+ok(request('/api/finance',{action:'expense',data:{date:'2026-10-11',category:'Filament',description:'Audit stock spool',quantity:1,unit:'kg',unitCost:1600,proofs:[purchaseProof]}},manager));
+const lot=ok(request('/api/finance?scope=submissions',null,manager)).stockLots.find(l=>l.description==='Audit stock spool');
+const wasteInput={...submission,kind:'Damage / waste',stockId:lot.id,quantity:10,unitCost:999,reason:'Damaged stock audit regression',proofs:[realProof]};
+assert.equal(request('/api/finance',{action:'expense_submit',data:{...wasteInput,stockId:''}},auditProduction).status,400);
+const beforeExpense=ok(request('/api/finance',null,manager)).summary.expenses;
+ok(request('/api/finance',{action:'expense_submit',data:wasteInput},auditProduction));
+let auditWaste=ok(request('/api/finance?scope=submissions',null,manager)).submissions.find(e=>e.reason===wasteInput.reason);
+assert.equal(auditWaste.totalMinor,1600);assert.equal(auditWaste.unit,'g');
+assert.equal(ok(request('/api/finance?scope=submissions',null,manager)).stockLots.find(l=>l.id===lot.id).remaining,990);
+assert.equal(request('/api/finance',{action:'expense_submit',data:{...wasteInput,quantity:991}},auditProduction).status,400);
+assert.equal(request('/api/finance',{action:'expense_review',id:auditWaste.id,decision:'Approved',costTreatment:'Additional expense',note:'Invalid double charge'},manager).status,400);
+ok(request('/api/finance',{action:'expense_review',id:auditWaste.id,decision:'Approved',costTreatment:'Already included in purchase',note:'Confirmed stock waste'},manager));
+assert.equal(ok(request('/api/finance',null,manager)).summary.expenses,beforeExpense);
+assert.equal(ok(request('/api/finance?scope=submissions',null,manager)).stockLots.find(l=>l.id===lot.id).remaining,990);
+ok(request('/api/finance',{action:'expense_submit',data:{...wasteInput,reason:'Reject this waste regression'}},auditProduction));
+auditWaste=ok(request('/api/finance?scope=submissions',null,manager)).submissions.find(e=>e.reason==='Reject this waste regression');
+ok(request('/api/finance',{action:'expense_review',id:auditWaste.id,decision:'Rejected',note:'Incorrect measurement'},manager));
+assert.equal(ok(request('/api/finance?scope=submissions',null,manager)).stockLots.find(l=>l.id===lot.id).remaining,990);
+console.log('PASS audit fixes: username normalization, image bytes, redelivery permissions, stock waste reservation/approval/rejection and no double charge.');
