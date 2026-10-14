@@ -20,3 +20,13 @@ const unknown=report([legacyImport],[],[],[],'2026-10-01','2026-10-31','month','
 assert.equal(report([legacyImport],[],[],[],'2026-09-01','2026-09-30','month','order').summary.revenue,39600);
 assert.equal(report([{...legacyImport,deliveredDate:'2026-10-02'}],[],[],[],'2026-10-01','2026-10-31','month','delivery').summary.revenue,39600);
 console.log('PASS historical imports: unknown delivery dates excluded and counted; order-date and known delivery-date reporting preserved.');
+
+// Authoritative Sheet1 reconciliation: total selling prices, not unit prices.
+const sheetPrices=[400,300,800,400,800,900,350,350,300,700,450,300,450,250,200];
+const sheetOrders=sheetPrices.map((cost,i)=>({cost,quantity:2,orderDate:i<7?'2026-09-26':'2026-10-03',status:i===5?'Cancelled':'Delivered'}));
+const sheetExpenses=[110,50,3141,1600].map(n=>({date:'2026-10-01',totalMinor:n*100}));
+const reconciled=report(sheetOrders,sheetExpenses,[],[],'1900-01-01','9999-12-31','month').summary;
+assert.deepEqual([reconciled.expected,reconciled.fees,reconciled.revenue,reconciled.expenses,reconciled.expectedProfit,reconciled.operatingProfit,reconciled.net],[605000,5800,599200,490100,114900,109100,109100]);
+const withNewOrder=report([...sheetOrders,{cost:550,orderDate:'2026-10-14',status:'Prepared'}],sheetExpenses,[],[],'1900-01-01','9999-12-31','month').summary;
+assert.equal(withNewOrder.expected,660000);assert.equal(withNewOrder.revenue,599200);assert.equal(withNewOrder.net,109100);
+console.log('PASS authoritative sheet totals and additional prepared order without premature revenue.');
