@@ -1,7 +1,7 @@
 import {expenseRecords,stockLots} from '../../../lib/stock';
 import {env} from 'cloudflare:workers';
 import {current,has} from '../../../lib/access';
-import {report,validDate,expenseInput,salaryInput} from '../../../lib/finance';
+import {report,validDate,expenseInput,salaryInput,minor} from '../../../lib/finance';
 import {submissionInput,countsAsExpense,submissionTotals} from '../../../lib/expense-submissions';
 const json=(data:any,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}});
 const digest=async(s:string)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s))),x=>x.toString(16).padStart(2,'0')).join('');
@@ -26,6 +26,21 @@ if(b.action==='expense_submit'){
  await db.prepare('INSERT INTO expenses (id,date,data,creator,created) VALUES (?,?,?,?,?)').bind('EXP-'+crypto.randomUUID(),data.date,JSON.stringify(record),u.id,now).run();return json({ok:true});
 }
 if(!has(u,'manager'))return json({error:'Manager access required.'},403);
+if(b.action==='purchase_total'){
+ const rows=await expenseRecords(db);const purchase=rows.find((r:any)=>r.id===b.id);
+ if(!purchase||purchase.stockId||purchase.voided||purchase.approval&&purchase.kind!=='Purchase')throw Error('Select an active purchase.');
+ const totalMinor=minor(b.data?.totalCost);const reason=String(b.data?.reason||'').trim();if(totalMinor<=0||reason.length<10)throw Error('Enter the total paid and a correction reason of at least 10 characters.');
+ const corrected={...purchase,totalMinor,unitCostMinor:totalMinor/Number(purchase.quantity),history:[...(purchase.history||[]),{action:'Purchase total corrected',by:u.name,userId:u.id,date:now,reason,previousTotalMinor:purchase.totalMinor,totalMinor}]};
+ const unit=String(purchase.unit).toLowerCase();const divisor=Number(purchase.quantity)*(['kg','l'].includes(unit)?1000:1);const rate=totalMinor/divisor;
+ const linked=rows.filter((r:any)=>r.stockId===purchase.id).map((r:any)=>({...r,totalMinor:Math.round(Number(r.quantity)*rate),unitCostMinor:rate,history:[...(r.history||[]),{action:'Stock cost recalculated',by:u.name,userId:u.id,date:now,reason,previousTotalMinor:r.totalMinor}]}));
+ const changes=[corrected,...linked].map((r:any)=>db.prepare('UPDATE expenses SET data=? WHERE id=?').bind(JSON.stringify(r),r.id));
+ const orders=(await db.prepare('SELECT * FROM orders').all()).results;
+ for(const row of orders){const d=JSON.parse(row.data);if(!(d.productionCosts||[]).some((c:any)=>linked.some((l:any)=>l.id===c.expenseId)))continue;
+ d.productionCosts=d.productionCosts.map((c:any)=>{const match=linked.find((l:any)=>l.id===c.expenseId);return match?{...c,totalMinor:match.totalMinor}:c});
+ d.history=[...(d.history||[]),{event:'Stock cost corrected',status:row.status,by:u.name,userId:u.id,date:now,reason,purchaseId:purchase.id}];
+ changes.push(db.prepare('UPDATE orders SET data=?,version=version+1 WHERE id=?').bind(JSON.stringify(d),row.id));}
+ await db.batch(changes);return json({ok:true});
+}
 if(b.action==='expense_review'){
  const row=await db.prepare('SELECT * FROM expenses WHERE id=?').bind(b.id).first();if(!row)throw Error('Submission not found.');const old=JSON.parse(row.data);
  if(old.approval!=='Pending'||row.voided)throw Error('This submission has already been reviewed or voided. Refresh the list.');

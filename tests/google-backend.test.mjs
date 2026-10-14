@@ -49,7 +49,7 @@ assert.equal(request('/api/finance',{action:'expense',data:{date:'2026-10-11',ca
 ok(request('/api/finance',{action:'expense',data:{proofs:[purchaseProof],date:'2026-10-11',category:'Filament',description:'PLA',quantity:1,unitCost:20}},manager));
 const report=ok(request('/api/finance?from=2026-10-01&to=2026-10-31&group=month&basis=order',null,manager));assert.equal(report.expenses.length,4);
 assert.equal(request('/api/finance',null,tokens.production).status,403);
-assert.equal(ok(request(photo,null,tokens.crm)).type,'image/png');
+assert.equal(request(photo,null,tokens.crm).status,403);
 // Production expenses: isolate submissions, validate evidence, and account exactly once.
 const expenseProof=ok(request('/api/photo',{purpose:'expense'},tokens.production,{file:{type:'image/png',data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='}})).url;
 const submission={kind:'Purchase',date:'2026-10-11',category:'Filament',description:'PLA for keyrings',quantity:1000,unit:'g',unitCost:0.12,vendor:'Test supplier',reason:'Purchased a new spool for keyring production.',proofs:[expenseProof]};
@@ -128,7 +128,7 @@ assert.equal(request('/api/action',{action:'status',id:correction.id,status:'Del
 ok(request('/api/workflow',{action:'request_change',id:correction.id,kind:'Status',proposedStatus:'Delivered',reason:'Cancellation was selected by mistake'},tokens.distributor));
 const cancelUndo=ok(request('/api/action',null,manager)).requests.find(r=>r.orderId===correction.id&&r.status==='Pending');
 ok(request('/api/workflow',{action:'review',requestId:cancelUndo.id,decision:'Approved'},manager));
-assert(ok(request('/api/action',null,tokens.distributor)).orders.some(o=>o.id===correction.id&&o.status==='Delivered'));
+assert(ok(request('/api/action',null,tokens.distributor)).archive.some(o=>o.id===correction.id&&o.status==='Delivered'));
 console.log('PASS delivered cancellation is separate from manager-approved undo.');
 
 
@@ -214,3 +214,33 @@ assert.equal(ok(request('/api/finance?scope=submissions',null,manager)).stockLot
 console.log('PASS audit fixes: username normalization, image bytes, redelivery permissions, stock waste reservation/approval/rejection and no double charge.');
 
 const fastLogin=ok(request('/api/action',{action:'login',username:'production',password:'Test-password-123'}));assert.equal(fastLogin.workspace.user.username,'production');assert.equal(fastLogin.workspace.users.length,0);console.log('PASS performance: login bundles scoped workspace, photo transfer releases shared lock.');
+
+// Completed order records expose only contact fields and safe workflow metadata.
+ok(request('/api/action',{action:'order',data:{...order,customer:'Completed privacy regression'}},tokens.moderator));
+const doneOrder=ok(request('/api/action',null,tokens.moderator)).orders.find(o=>o.customer==='Completed privacy regression');
+ok(request('/api/action',{action:'status',id:doneOrder.id,status:'Designed'},tokens.designer));
+const uploadDone=()=>ok(request('/api/photo',{purpose:'production',orderId:doneOrder.id},tokens.production,{file:{type:'image/png',data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='}})).url;
+ok(request('/api/action',{action:'status',id:doneOrder.id,status:'Prepared',productionPhotos:[uploadDone()],costProofPhoto:uploadDone(),productionCosts:[{costSource:'New expense',category:'Other',description:'Test materials',amount:10,reason:'Materials for privacy regression'}]},tokens.production));
+ok(request('/api/action',{action:'status',id:doneOrder.id,status:'Delivered'},tokens.distributor));
+
+for(const role of ['production','designer','moderator','distributor']){
+ const completed=ok(request('/api/action',null,tokens[role])).archive.find(o=>o.id===doneOrder.id);
+ assert(completed);assert.equal(completed.phone,'0123');
+ for(const key of ['cost','address','product','photo','productionPhotos','history','productionCosts','notes'])assert.equal(completed[key],undefined);
+ assert.equal(ok(request('/api/action',null,tokens[role])).orders.some(o=>o.id===doneOrder.id),false);
+}
+assert.equal(request('/api/workflow',{action:'request_change',id:doneOrder.id,kind:'Status',proposedStatus:'Pending',reason:'Designer attempts to skip the chain'},tokens.designer).status,403);
+assert.equal(request('/api/workflow',{action:'request_change',id:doneOrder.id,kind:'Status',proposedStatus:'Designed',reason:'Distributor attempts to skip stages'},tokens.distributor).status,403);
+ok(request('/api/workflow',{action:'request_change',id:doneOrder.id,kind:'Status',proposedStatus:'Prepared',reason:'Delivery was confirmed accidentally'},tokens.distributor));
+const deliveredUndo=ok(request('/api/action',null,manager)).requests.find(r=>r.orderId===doneOrder.id&&r.status==='Pending');
+assert.equal(ok(request('/api/action',null,tokens.distributor)).requests.find(r=>r.id===deliveredUndo.id).before,undefined);
+ok(request('/api/workflow',{action:'review',requestId:deliveredUndo.id,decision:'Approved'},manager));
+assert.equal(ok(request('/api/action',null,tokens.distributor)).orders.find(o=>o.id===doneOrder.id).status,'Prepared');
+// Total-price input and manager correction revalue linked usage without extra expense.
+ok(request('/api/finance',{action:'expense',data:{proofs:[purchaseProof],date:'2026-10-14',category:'Filament',description:'Total price regression',quantity:1000,unit:'g',totalCost:1600}},manager));
+assert.equal(ok(request('/api/finance',null,manager)).expenses.find(e=>e.description==='Total price regression').totalMinor,160000);
+assert.equal(request('/api/finance',{action:'purchase_total',id:stock.id,data:{totalCost:800,reason:'Fix incorrectly entered purchase total'}},tokens.production).status,403);
+ok(request('/api/finance',{action:'purchase_total',id:stock.id,data:{totalCost:800,reason:'Fix incorrectly entered purchase total'}},manager));
+assert.equal(ok(request('/api/finance?scope=submissions',null,manager)).submissions.find(e=>e.id===stockEntry.id).totalMinor,800);
+assert.equal(ok(request('/api/action',null,manager)).deletedOrders.find(o=>o.id===undoOrder.id).productionCosts.find(c=>c.expenseId===stockEntry.id).totalMinor,800);
+console.log('PASS completed contact-only records, chain undo authorization, total purchase price and linked cost corrections.');
