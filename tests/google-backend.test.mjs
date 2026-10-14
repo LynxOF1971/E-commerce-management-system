@@ -244,3 +244,11 @@ ok(request('/api/finance',{action:'purchase_total',id:stock.id,data:{totalCost:8
 assert.equal(ok(request('/api/finance?scope=submissions',null,manager)).submissions.find(e=>e.id===stockEntry.id).totalMinor,800);
 assert.equal(ok(request('/api/action',null,manager)).deletedOrders.find(o=>o.id===undoOrder.id).productionCosts.find(c=>c.expenseId===stockEntry.id).totalMinor,800);
 console.log('PASS completed contact-only records, chain undo authorization, total purchase price and linked cost corrections.');
+
+// Imported/manager-handled delivered orders are discoverable without exposing details.
+const historical=ok(request('/api/action',null,manager)).orders.find(o=>o.status==='Delivered');
+for(const role of ['production','designer','moderator','distributor','crm']){
+ const contact=ok(request('/api/action',null,tokens[role])).archive.find(o=>o.id===historical.id);assert(contact);
+ for(const key of ['cost','address','product','photo','productionPhotos','history','productionCosts','notes'])assert.equal(contact[key],undefined);
+}
+console.log('PASS completed orders visible to every staff role, with contact-only fields.');
